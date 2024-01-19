@@ -14,8 +14,9 @@ from torchvision.transforms import functional as TF
 import mrcfile
 import torch
 from scipy.ndimage import gaussian_filter
+import tifffile as tiff
 
-def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe=False, only_110_za=False):
+def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe=False):
     """Return the data dictionaries for experimental and simulated data."""
     def extract_number(file_name):
         """Extract the numerical part from the file name."""
@@ -49,88 +50,74 @@ def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe
         
         if apply_probe:
             pixel_size = df['pixel_size'].iloc[0]
-            
-            # Probe is a Gaussian kernel with HWHM of 0.05 nm with a pixel size of pixel_size
             hwhm_nm = 0.05  # HWHM in nanometers
             hwhm_pixels = hwhm_nm / pixel_size
             sigma = hwhm_pixels / np.sqrt(2 * np.log(2))
-            
             probe = sigma
-            #print(pixel_size,probe,hwhm_pixels)
-            # Convolve the image with the probe
             image = Image.fromarray(gaussian_filter(image_data, sigma=probe))
-            #plt.subplot(1, 2, 1)
-            #plt.imshow(image_data, cmap='gray')
-            #plt.title("Original")
-            #plt.subplot(1, 2, 2)
-            #plt.imshow(image, cmap='gray')
-            #plt.title("Convolved")
-            #plt.show()
 
-        data_dict[num] = {'dataframe': df, 'image': image, 'pixel_size': df['pixel_size'].iloc[0]}
-
-    if only_110_za:
-        #remove all that dont  have support in 110 zone axis
-        filtered_data = {
-            num: data
-            for num, data in data_dict.items()
-            if data['dataframe']['support_interface'].iloc[0] == '111' and data['dataframe']['subset'].iloc[0][:3] != '360'
-        }
-        data_dict = {num: data for num, data in enumerate(filtered_data.values())}
-    #plot all remaining images in data_dict
-    #for num, data in data_dict.items():
-    #    image = data['image']
-    #    image_data = np.array(image)
-    #    plt.imshow(image_data, cmap='gray')
-    #    plt.title(f"Image {num}")
-    #    plt.show()
-
-    pixel_sizes = [data['pixel_size'] for data in data_dict.values()]
-    bin_centers = [0.02, 0.025, 0.03, 0.035]
-
-    def closest_bin(pixel_size, bins):
-        return bins[np.argmin([abs(pixel_size - bin_val) for bin_val in bins])]
-
-    assigned_bins = [closest_bin(pixel_size, bin_centers) for pixel_size in pixel_sizes]
-
-    bin_counts = Counter(assigned_bins)
-
-    counts = [bin_counts.get(center, 0) for center in bin_centers]
-
+        data_dict[num] = {'dataframe': df, 'image': image}
     # Create a bar plot
 
-    bin_dir_map = {0.02: "20 pm", 0.025: "25 pm", 0.03: "30 pm", 0.035: "35 pm"}
-    selected_images_dict = {}
+    number_of_simulated_images = len(data_dict)
+    experimental_path = 'data/experimental'  # Adjust this path as needed
 
-    for count, bin_dir in zip(counts, bin_dir_map.values()):
-        dir_path = os.path.join(experimental_path, bin_dir)
-        tif_files = [f for f in os.listdir(dir_path) if f.endswith('.tif') and re.match(r'\d+\.tif', f)]
+    # Find the number of unique nanostructures
+    nanostructure_files = os.listdir(os.path.join(experimental_path, 'new_set/unstacked'))
+    number_of_experimental_nanostructures = len(Counter([int(re.match(r"(\d+)_(\d+)\.tif", f).group(2)) for f in nanostructure_files if re.match(r"(\d+)_(\d+)\.tif", f)]))
 
-        # Randomly select 'count' number of files
-        selected_files = random.sample(tif_files, min(count, len(tif_files)))
+    # Find frames per nanostructure
+    frames_dict = {}
+    for f in nanostructure_files:
+        match = re.match(r"(\d+)_(\d+)\.tif", f)
+        if match:
+            nanostructure_idx = int(match.group(2))
+            frame_idx = int(match.group(1))
+            if nanostructure_idx not in frames_dict:
+                frames_dict[nanostructure_idx] = []
+            frames_dict[nanostructure_idx].append(frame_idx)
 
-        selected_images_dict[bin_dir] = [os.path.join(dir_path, f) for f in selected_files]
+    # Initialize images_per_nanostructure
+    images_per_nanostructure = [1] * number_of_experimental_nanostructures
+    number_of_simulated_images -= number_of_experimental_nanostructures
 
-    bin_dir_map_reverse = {"20 pm": 0.02, "25 pm": 0.025, "30 pm": 0.03, "35 pm": 0.035}
+    # Distribute remaining images
+    while number_of_simulated_images > 0:
+        nanostructure = random.randint(1, number_of_experimental_nanostructures)
+        if len(frames_dict[nanostructure]) > images_per_nanostructure[nanostructure - 1]:
+            images_per_nanostructure[nanostructure - 1] += 1
+            number_of_simulated_images -= 1
+
+    # Select images
+    image_paths = []
+    for idx, num_images in enumerate(images_per_nanostructure):
+        nanostructure_idx = idx + 1
+        selected_frames = random.sample(frames_dict[nanostructure_idx], num_images)
+        for frame in selected_frames:
+            file_path = os.path.join(experimental_path, 'new_set/unstacked', f"{frame}_{nanostructure_idx}.tif")
+            image_paths.append(file_path)
+
+    # Output
+    print("Images per nanostructure:", images_per_nanostructure)
+    print("Image paths:", image_paths)
+
+
 
     experimental_data_dict = {}
     counter = 0
     global_min_exp = np.inf
     global_max_exp = -np.inf
-    for bin_dir, image_paths in selected_images_dict.items():
-        for image_path in image_paths:
-            pixel_size = bin_dir_map_reverse[bin_dir]
-            image = Image.open(image_path).convert('F')
-            image_data = np.array(image)
-            global_min_exp = min(global_min_exp, np.min(image_data))
-            global_max_exp = max(global_max_exp, np.max(image_data))
-            # Store data in the dictionary
-            experimental_data_dict[counter] = {
-                'dataframe': None,  # Assuming this is to be filled later
-                'image': image,
-                'pixel_size': pixel_size,
-            }
-            counter += 1
+    for image_path in image_paths:
+        image_data = tiff.imread(image_path)
+        global_min_exp = min(global_min_exp, np.min(image_data))
+        global_max_exp = max(global_max_exp, np.max(image_data))
+        image = Image.fromarray(image_data)
+        # Store data in the dictionary
+        experimental_data_dict[counter] = {
+            'dataframe': None,  # Assuming this is to be filled later
+            'image': image,
+        }
+        counter += 1
 
     transform_sim = transforms.Compose([
         RandomRotation90(),
@@ -184,7 +171,7 @@ class SimulatedDataset(Dataset):
         return len(self.data_dict)
 
     def __getitem__(self, idx):
-        dataframe, simulated_image, pixel_size = self.data_dict[idx].values()
+        dataframe, simulated_image = self.data_dict[idx].values()
         if self.transform:
             simulated_image = self.transform(simulated_image)
             
@@ -199,10 +186,34 @@ class ExperimentalDataset(Dataset):
         return len(self.data_dict)
 
     def __getitem__(self, idx):
-        dataframe, experimental_image, pixel_size = self.data_dict[idx].values()
+        dataframe, experimental_image = self.data_dict[idx].values()
         if self.transform:
             experimental_image = self.transform(experimental_image)
 
         return experimental_image
 
+# %%
+
+if __name__ == '__main__':
+    # Find all tif stacks in experimental data/new_set
+    experimental_path = 'data/experimental/new_set'
+    save_path = 'data/experimental/new_set/unstacked'
+    list_of_files = os.listdir(experimental_path)
+
+    # Ensure that only files are included, not directories
+    list_of_files = [f for f in list_of_files if os.path.isfile(os.path.join(experimental_path, f))]
+
+    # Sort the list of files based on the first four digits
+    list_of_files.sort(key=lambda f: int(re.sub('\D', '', f)[:4]) if re.search('\d', f) else 0)
+
+    j = 1
+    i = 1
+    for file in list_of_files:
+        tif_stack = tiff.imread(os.path.join(experimental_path, file))
+        print(file, tif_stack.shape)
+        for k in range(tif_stack.shape[0]):
+            tiff.imsave(os.path.join(save_path, f"{j}_{i}.tif"), tif_stack[k])
+            j += 1
+            print(j)
+        i += 1
 # %%

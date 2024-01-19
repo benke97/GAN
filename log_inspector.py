@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import ast
 
 # File path
-log_file_path = 'training_log_22.txt'
+log_file_path = 'training_log_29.txt'
 
 # Initialize lists to store the loss values
 loss_G__AB_values = []

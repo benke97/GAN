@@ -13,7 +13,7 @@ class Generator(nn.Module):
                 nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
                 nn.BatchNorm2d(out_channels),
                 nn.ReLU(inplace=True),
-                nn.Dropout(dropout_rate)
+                #nn.Dropout(dropout_rate)
         )
 
         def upconv_block(in_channels, out_channels):
@@ -90,14 +90,14 @@ class Discriminator(nn.Module):
         input_channels = 1 # for grayscale images
 
         # Discriminator architecture
-        self.conv1 = discriminator_block(input_channels, 64, normalization=False)
-        self.conv2 = discriminator_block(64, 128)
-        self.conv3 = discriminator_block(128, 256)
-        self.conv4 = discriminator_block(256, 512)
+        self.conv1 = discriminator_block(input_channels, 32, normalization=False)
+        self.conv2 = discriminator_block(32, 64)
+        self.conv3 = discriminator_block(64, 128)
+        self.conv4 = discriminator_block(128, 256)
 
         # The following padding is used to adjust the shape of the output
         self.pad = nn.ZeroPad2d((1, 0, 1, 0))
-        self.final_conv = nn.Conv2d(512, 1, kernel_size=4, padding=1)
+        self.final_conv = nn.Conv2d(256, 1, kernel_size=4, padding=1)
 
     def forward(self, img):
         # Forward pass through the discriminator layers
