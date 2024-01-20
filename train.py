@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 from models import Generator, Discriminator
+from resnet_models import ResnetGenerator, PatchGANDiscriminator
 from prepare_data import SimulatedDataset, ExperimentalDataset, get_data_dicts_and_transforms
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -10,10 +11,14 @@ from helpers import plot_batch
 import random
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+import functools
+from pathlib import Path
 
 random.seed(1337)
 
-sim_data_dict, exp_data_dict, transform_sim, transform_exp = get_data_dicts_and_transforms("data/mrc", "data/experimental",apply_probe=True)
+mrc_path = Path('data') / 'mrc'
+experimental_path = Path('data') / 'experimental'
+sim_data_dict, exp_data_dict, transform_sim, transform_exp = get_data_dicts_and_transforms(mrc_path, experimental_path, apply_probe=True)
 
 simulated_dataset = SimulatedDataset(sim_data_dict, transform=transform_sim)
 simulated_loader = DataLoader(simulated_dataset, batch_size=12, shuffle=True)
@@ -29,18 +34,21 @@ train_dataset_sim, val_dataset_sim = random_split(simulated_dataset, [train_size
 plot_batch(simulated_loader, 'Simulated Images')
 plot_batch(experimental_loader, 'Experimental Images')
 
-#%%
-G_AB = Generator()  # Translates images from domain A to domain B
-G_BA = Generator()  # Translates images from domain B to domain A
-D_A = Discriminator()  # Discriminator for domain A
-D_B = Discriminator()  # Discriminator for domain B
 
+#%%
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-G_AB = Generator().to(device)
-G_BA = Generator().to(device)
-D_A = Discriminator().to(device)
-D_B = Discriminator().to(device)
+#G_AB = Generator().to(device)
+#G_BA = Generator().to(device)
+#D_A = Discriminator().to(device)
+#D_B = Discriminator().to(device)
+
+norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
+G_AB = ResnetGenerator(norm_layer, n_blocks=6, use_dropout=False).to(device)
+G_BA = ResnetGenerator(norm_layer, n_blocks=6, use_dropout=False).to(device)
+D_A = PatchGANDiscriminator(norm_layer).to(device)
+D_B = PatchGANDiscriminator(norm_layer).to(device)
+
 # Adversarial loss
 criterion_GAN = nn.BCELoss()
 
