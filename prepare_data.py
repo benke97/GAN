@@ -15,6 +15,7 @@ import mrcfile
 import torch
 from scipy.ndimage import gaussian_filter
 import tifffile as tiff
+from pathlib import Path
 
 def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe=False):
     """Return the data dictionaries for experimental and simulated data."""
@@ -60,10 +61,10 @@ def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe
     # Create a bar plot
 
     number_of_simulated_images = len(data_dict)
-    experimental_path = 'data/experimental'  # Adjust this path as needed
+    experimental_path = Path('data') / 'experimental'  # Adjust this path as needed
 
     # Find the number of unique nanostructures
-    nanostructure_files = os.listdir(os.path.join(experimental_path, 'new_set/unstacked'))
+    nanostructure_files = os.listdir(experimental_path / 'new_set' / 'unstacked')
     number_of_experimental_nanostructures = len(Counter([int(re.match(r"(\d+)_(\d+)\.tif", f).group(2)) for f in nanostructure_files if re.match(r"(\d+)_(\d+)\.tif", f)]))
 
     # Find frames per nanostructure
@@ -94,7 +95,7 @@ def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe
         nanostructure_idx = idx + 1
         selected_frames = random.sample(frames_dict[nanostructure_idx], num_images)
         for frame in selected_frames:
-            file_path = os.path.join(experimental_path, 'new_set/unstacked', f"{frame}_{nanostructure_idx}.tif")
+            file_path = experimental_path / 'new_set' / 'unstacked' / f"{frame}_{nanostructure_idx}.tif"
             image_paths.append(file_path)
 
     # Output
@@ -196,8 +197,8 @@ class ExperimentalDataset(Dataset):
 
 if __name__ == '__main__':
     # Find all tif stacks in experimental data/new_set
-    experimental_path = 'data/experimental/new_set'
-    save_path = 'data/experimental/new_set/unstacked'
+    experimental_path = Path('data') / 'experimental' / 'new_set'
+    save_path = Path('data') / 'experimental' / 'new_set' / 'unstacked'
     list_of_files = os.listdir(experimental_path)
 
     # Ensure that only files are included, not directories
