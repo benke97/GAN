@@ -11,7 +11,6 @@ from helpers import plot_batch
 import random
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
-import functools
 from pathlib import Path
 
 random.seed(1337)
@@ -21,10 +20,10 @@ experimental_path = Path('data') / 'experimental'
 sim_data_dict, exp_data_dict, transform_sim, transform_exp = get_data_dicts_and_transforms(mrc_path, experimental_path, apply_probe=True)
 
 simulated_dataset = SimulatedDataset(sim_data_dict, transform=transform_sim)
-simulated_loader = DataLoader(simulated_dataset, batch_size=12, shuffle=True)
+simulated_loader = DataLoader(simulated_dataset, batch_size=1, shuffle=True)
 
 experimental_dataset = ExperimentalDataset(exp_data_dict, transform=transform_exp)
-experimental_loader = DataLoader(experimental_dataset, batch_size=12, shuffle=True)
+experimental_loader = DataLoader(experimental_dataset, batch_size=1, shuffle=True)
 
 train_size_sim = int(0.8 * len(simulated_dataset))
 val_size_sim = len(simulated_dataset) - train_size_sim
@@ -43,11 +42,11 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 #D_A = Discriminator().to(device)
 #D_B = Discriminator().to(device)
 
-norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
-G_AB = ResnetGenerator(norm_layer, n_blocks=6, use_dropout=False).to(device)
-G_BA = ResnetGenerator(norm_layer, n_blocks=6, use_dropout=False).to(device)
-D_A = PatchGANDiscriminator(norm_layer).to(device)
-D_B = PatchGANDiscriminator(norm_layer).to(device)
+norm = "instance"
+G_AB = ResnetGenerator(norm, n_blocks=6, use_dropout=False).to(device)
+G_BA = ResnetGenerator(norm, n_blocks=6, use_dropout=False).to(device)
+D_A = PatchGANDiscriminator(norm).to(device)
+D_B = PatchGANDiscriminator(norm).to(device)
 
 # Adversarial loss
 criterion_GAN = nn.BCELoss()
@@ -86,6 +85,10 @@ fixed_sample_B = next(iter(simulated_loader))[0].to(device)     # Fixed batch fr
 fixed_sample_A = fixed_sample_A.unsqueeze(0)
 fixed_sample_B = fixed_sample_B.unsqueeze(0)
 num_epochs = 300
+
+# TODO: Remove this, is here for debugging
+torch.autograd.set_detect_anomaly(True)
+
 for epoch in range(num_epochs):
     print(f"Epoch {epoch+1}/{num_epochs}")
     
@@ -106,6 +109,9 @@ for epoch in range(num_epochs):
         # Generators G_AB and G_BA
         optimizer_G_AB.zero_grad()
         optimizer_G_BA.zero_grad()
+        optimizer_D_A.zero_grad()
+        optimizer_D_B.zero_grad()
+
 
         # Identity loss
         loss_id_A = criterion_identity(G_BA(real_A), real_A)
@@ -139,8 +145,6 @@ for epoch in range(num_epochs):
         optimizer_G_BA.step()
 
         # Discriminator A
-        optimizer_D_A.zero_grad()
-
         real_A_output = D_A(real_A)
         target_real = torch.ones_like(real_A_output).to(device)
         loss_real = criterion_GAN(real_A_output, target_real)
@@ -154,7 +158,6 @@ for epoch in range(num_epochs):
         optimizer_D_A.step()
 
         # Discriminator B
-        optimizer_D_B.zero_grad()
 
         real_B_output = D_B(real_B)
         target_real_B = torch.ones_like(real_B_output).to(device)
