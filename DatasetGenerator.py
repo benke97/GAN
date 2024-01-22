@@ -219,14 +219,14 @@ class DatasetGenerator():
 
         return structure_df
 
-    def generate_dataset(self,num_structures, composition, atom_counting_set=False, set_360=False,atom_counting_num_structs=400, support_layers=8, support_depth=50, support_width=50, CeO2_bulk_depth=20, CeO2_bulk_width=20, CeO2_bulk_height=20, Pt_bulk_depth=10, Pt_bulk_width=10, Pt_bulk_height=10, wulff_element="Pt", wulff_rounding="above", cluster_element="Pt"):
+    def generate_dataset(self,num_structures, composition, atom_counting_set=False, set_360=False,atom_counting_num_structs=400,random_on_random=False, support_layers=8, support_depth=50, support_width=50, CeO2_bulk_depth=20, CeO2_bulk_width=20, CeO2_bulk_height=20, Pt_bulk_depth=10, Pt_bulk_width=10, Pt_bulk_height=10, wulff_element="Pt", wulff_rounding="above", cluster_element="Pt"):
         """
         num_structures: The number of structures to generate
         Composition = [num_random,num_wulff,num_cluster] """
 
         assert sum(composition) == num_structures, "The sum of the composition must equal the number of structures"
         dfs = []
-        j = 0
+        j = 2002
 
         if set_360:
             """generate 200 atom wulff with 111 on 111 zone axis,no step, 
@@ -385,7 +385,7 @@ class DatasetGenerator():
             structure_df[["x","y","z"]] = structure_df[["x","y","z"]]*0.1
             structure_df = self.rotate_to_drprobe_view(structure_df)
             pixel_size, cropped_dataframe,in_image_df, drprobe_frame, beam_offset = self.crop_structure(structure_df)
-            self.write_cif(cropped_dataframe,drprobe_frame,f"1234.cif")
+            self.write_cif(cropped_dataframe,drprobe_frame,f"{j}.cif")
             sample_id = j
             subset = "None"
             structure_df = self.complete_structure(structure_df,cropped_dataframe,pixel_size,beam_offset,sample_id,subset,in_image_df, dict_of_parameters)
@@ -453,12 +453,54 @@ class DatasetGenerator():
             print(j)
             #elf.obj_gen.mayavi_atomic_structure(visu)
         print("cluster set done")
+        if random_on_random:
+            for i in range(498): # Random on random
+                structure_type, dict_of_parameters  = self.ParameterRandomizer.randomize_parameters("random_on_random")
+                dict_of_parameters = self.add_to_dict(dict_of_parameters,{"support_layers":support_layers,
+                                                                            "support_depth":support_depth,
+                                                                            "support_width":support_width,
+                                                                            "CeO2_bulk_depth":CeO2_bulk_depth,
+                                                                            "CeO2_bulk_width":CeO2_bulk_width,
+                                                                            "CeO2_bulk_height":CeO2_bulk_height,
+                                                                            "Pt_bulk_depth":Pt_bulk_depth,
+                                                                            "Pt_bulk_width":Pt_bulk_width,
+                                                                            "Pt_bulk_height":Pt_bulk_height})
+                structure_df = self.obj_gen.generate_atomic_structure(structure_type,dict_of_parameters)
+                structure_df["structure_type"] = "random"
+                structure_df[["x","y","z"]] = structure_df[["x","y","z"]]*0.1
+                k = random.uniform(-10,10)
+                #print(k)
+                rotation_matrix = np.array([[1, 0, 0], [0, np.cos(np.deg2rad(k)), -np.sin(np.deg2rad(k))], [0, np.sin(np.deg2rad(k)), np.cos(np.deg2rad(k))]])
+                
+                #rotation matrix around y
+                r= random.uniform(0,360)
+                rotation_matrix_y = np.array([[np.cos(np.deg2rad(r)), 0, np.sin(np.deg2rad(r))], [0, 1, 0], [-np.sin(np.deg2rad(r)), 0, np.cos(np.deg2rad(r))]])
+                
+                rotated_structure = structure_df.copy()
+                rotated_structure[['x', 'y', 'z']] = rotated_structure[['x', 'y', 'z']].dot(rotation_matrix).dot(rotation_matrix_y)
+
+                structure_df = self.rotate_to_drprobe_view(rotated_structure)
+                pixel_size, cropped_dataframe,in_image_df, drprobe_frame, beam_offset = self.crop_structure(structure_df)
+                self.write_cif(cropped_dataframe,drprobe_frame,f"{j}.cif")
+                sample_id = j
+                subset = "None"
+                structure_df = self.complete_structure(structure_df,cropped_dataframe,pixel_size,beam_offset,sample_id,subset,in_image_df, dict_of_parameters)
+                dfs.append(structure_df)
+                self.save_dataset(structure_df,f"structure_{j}.pkl")
+                j += 1
+                print(j)
+                #visu = cropped_dataframe.copy()
+                #visu[["x","y","z"]] = visu[["x","y","z"]] * 10
+                #visu.label = visu.label.replace({'Ce': 0, 'O': 1, 'Pt': 2})
+                #self.obj_gen.mayavi_atomic_structure(visu)
+        
+        print("random on random set done")
         dataset = pd.concat(dfs,ignore_index=True)
-        self.save_dataset(dataset,"dataset_troll.pkl")
+        self.save_dataset(dataset,"random_on_random_set.pkl")
 #%%
 data_gen = DatasetGenerator(os.getcwd())
 #data_gen.generate_dataset(1240,[600,320,320],atom_counting_set=True, atom_counting_num_structs=400,set_360=True)
-data_gen.generate_dataset(1,[1,0,0],atom_counting_set=False, atom_counting_num_structs=400,set_360=False)
+data_gen.generate_dataset(0,[0,0,0],atom_counting_set=False, atom_counting_num_structs=400,set_360=False, random_on_random=True)
 #%%
 
 dataset = pd.read_pickle("pkl/dataset.pkl")

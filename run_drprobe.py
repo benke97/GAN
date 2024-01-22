@@ -7,7 +7,7 @@ import pandas as pd
 
 class DrProbeRunner():
     def __init__(self):
-        self.dataset=2000
+        self.dataset=2500
         self.confidence_level = 0.9
 
     def get_file(self,i):
@@ -274,7 +274,7 @@ class DrProbeRunner():
     def generate_simulated_images(self):
         #start drprobe
         for i in range(self.dataset):
-            if i != 1234:
+            if i < 2226:
                 continue
             self.start_drprobe()
             #read structure_i with pkl
@@ -302,28 +302,29 @@ class DrProbeRunner():
             print(i)
 #%%
 if __name__ == "__main__":
-    #run through all structures and print how many have pixel size smaller than 0.15
-    j = 0
-    k = 0
-    lowest_pixel_size = 1
-    for i in range(2000):
-        print(i)
-        if i == 1234:
-            continue
-        with open(f"pkl/structure_{i}.pkl","rb") as f:
-            dataframe = pkl.load(f)
-        pixel_size = dataframe["pixel_size"][0]
-        surface_facet = dataframe["support_interface"][0]
-        particle_surface_facet = dataframe["particle_interface"][0]
-        if surface_facet == "random" and particle_surface_facet == "random":
-            k += 1
-        if pixel_size < 0.015:
-            if pixel_size < lowest_pixel_size:
-                lowest_pixel_size = pixel_size
-            j += 1
-    print(k)
-    print(j)
-    print(lowest_pixel_size)
+    if False:
+        #run through all structures and print how many have pixel size smaller than 0.15
+        j = 0
+        k = 0
+        lowest_pixel_size = 1
+        for i in range(2000):
+            print(i)
+            if i == 1234:
+                continue
+            with open(f"pkl/structure_{i}.pkl","rb") as f:
+                dataframe = pkl.load(f)
+            pixel_size = dataframe["pixel_size"][0]
+            surface_facet = dataframe["support_interface"][0]
+            particle_surface_facet = dataframe["particle_interface"][0]
+            if surface_facet == "random" and particle_surface_facet == "random":
+                k += 1
+            if pixel_size < 0.015:
+                if pixel_size < lowest_pixel_size:
+                    lowest_pixel_size = pixel_size
+                j += 1
+        print(k)
+        print(j)
+        print(lowest_pixel_size)
 
     drprobe = DrProbeRunner()
     drprobe.generate_simulated_images()

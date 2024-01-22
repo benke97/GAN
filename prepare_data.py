@@ -16,7 +16,7 @@ import torch
 from scipy.ndimage import gaussian_filter
 import tifffile as tiff
 
-def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe=False):
+def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe=False, only_random=False):
     """Return the data dictionaries for experimental and simulated data."""
     def extract_number(file_name):
         """Extract the numerical part from the file name."""
@@ -58,6 +58,16 @@ def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe
 
         data_dict[num] = {'dataframe': df, 'image': image}
     # Create a bar plot
+
+    # if only_random=True make a new data_dict with all entries in the old data_dict that have df['support_interface'] == 'random' or df['particle_interface'] == 'random'
+    if only_random:
+        new_data_dict = {}
+        i = 0
+        for key, value in data_dict.items():
+            if value['dataframe']['support_interface'].iloc[0] == 'random' or value['dataframe']['particle_interface'].iloc[0] == 'random':
+                new_data_dict[i] = value
+                i += 1
+        data_dict = new_data_dict
 
     number_of_simulated_images = len(data_dict)
     experimental_path = 'data/experimental'  # Adjust this path as needed
@@ -177,6 +187,15 @@ class SimulatedDataset(Dataset):
             
         return simulated_image
     
+    def plot_histogram(self):
+        """Plot the histogram of the simulated images."""
+        simulated_images = [self.data_dict[idx]['image'] for idx in range(len(self.data_dict))]
+        simulated_images = torch.stack(simulated_images)
+        simulated_images = simulated_images.numpy()
+        plt.hist(simulated_images.flatten(), bins=100)
+        plt.title("Histogram of Simulated Images")
+        plt.show()
+    
 class ExperimentalDataset(Dataset):
     def __init__(self, data_dict, transform=None):
         self.data_dict = data_dict
@@ -191,6 +210,15 @@ class ExperimentalDataset(Dataset):
             experimental_image = self.transform(experimental_image)
 
         return experimental_image
+    
+    def plot_histogram(self):
+        """Plot the histogram of the experimental images."""
+        experimental_images = [self.data_dict[idx]['image'] for idx in range(len(self.data_dict))]
+        experimental_images = torch.stack(experimental_images)
+        experimental_images = experimental_images.numpy()
+        plt.hist(experimental_images.flatten(), bins=100)
+        plt.title("Histogram of Experimental Images")
+        plt.show()
 
 # %%
 

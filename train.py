@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 from models import Generator, Discriminator
+from models import ResnetGenerator, PatchGANDiscriminator
 from prepare_data import SimulatedDataset, ExperimentalDataset, get_data_dicts_and_transforms
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -10,37 +11,54 @@ from helpers import plot_batch
 import random
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+from pathlib import Path
+from image_pool import ImagePool
 
 random.seed(1337)
 
-sim_data_dict, exp_data_dict, transform_sim, transform_exp = get_data_dicts_and_transforms("data/mrc", "data/experimental",apply_probe=True)
+mrc_path = Path('data') / 'mrc'
+experimental_path = Path('data') / 'experimental'
+sim_data_dict, exp_data_dict, transform_sim, transform_exp = get_data_dicts_and_transforms(mrc_path, experimental_path, apply_probe=True, only_random=False)
 
 simulated_dataset = SimulatedDataset(sim_data_dict, transform=transform_sim)
-simulated_loader = DataLoader(simulated_dataset, batch_size=12, shuffle=True)
+simulated_loader = DataLoader(simulated_dataset, batch_size=1, shuffle=True)
 
 experimental_dataset = ExperimentalDataset(exp_data_dict, transform=transform_exp)
-experimental_loader = DataLoader(experimental_dataset, batch_size=12, shuffle=True)
+experimental_loader = DataLoader(experimental_dataset, batch_size=1, shuffle=True)
 
 train_size_sim = int(0.8 * len(simulated_dataset))
 val_size_sim = len(simulated_dataset) - train_size_sim
 train_dataset_sim, val_dataset_sim = random_split(simulated_dataset, [train_size_sim, val_size_sim])
+train_dataset_exp, val_dataset_exp = random_split(experimental_dataset, [train_size_sim, val_size_sim])
+simulated_loader_train = DataLoader(train_dataset_sim, batch_size=1, shuffle=True)
+simulated_loader_val = DataLoader(val_dataset_sim, batch_size=1, shuffle=True)
+experimental_loader_train = DataLoader(train_dataset_exp, batch_size=1, shuffle=True)
+experimental_loader_val = DataLoader(val_dataset_exp, batch_size=1, shuffle=True)
 
 #plot a batch of images from both sets
 plot_batch(simulated_loader, 'Simulated Images')
 plot_batch(experimental_loader, 'Experimental Images')
 
+print(len(simulated_dataset), len(experimental_dataset))
+#plot the average histograms of the two datasets in the same plot
+
+#doesnt work yet
+#simulated_dataset.plot_histogram()
+#experimental_dataset.plot_histogram()
+
 #%%
-G_AB = Generator()  # Translates images from domain A to domain B
-G_BA = Generator()  # Translates images from domain B to domain A
-D_A = Discriminator()  # Discriminator for domain A
-D_B = Discriminator()  # Discriminator for domain B
-
-
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-G_AB = Generator().to(device)
-G_BA = Generator().to(device)
-D_A = Discriminator().to(device)
-D_B = Discriminator().to(device)
+#G_AB = Generator().to(device)
+#G_BA = Generator().to(device)
+#D_A = Discriminator().to(device)
+#D_B = Discriminator().to(device)
+
+norm = "instance"
+G_AB = ResnetGenerator(norm, n_blocks=6, use_dropout=False).to(device)
+G_BA = ResnetGenerator(norm, n_blocks=6, use_dropout=False).to(device)
+D_A = PatchGANDiscriminator(norm).to(device)
+D_B = PatchGANDiscriminator(norm).to(device)
+
 # Adversarial loss
 criterion_GAN = nn.BCELoss()
 
@@ -50,17 +68,17 @@ criterion_cycle = nn.L1Loss()
 # Identity loss (optional, can help with training stability)
 criterion_identity = nn.L1Loss()
 
-optimizer_G_AB = torch.optim.Adam(G_AB.parameters(), lr=0.0002)
-optimizer_G_BA = torch.optim.Adam(G_BA.parameters(), lr=0.0002)
-optimizer_D_A = torch.optim.Adam(D_A.parameters(), lr=0.0002)
-optimizer_D_B = torch.optim.Adam(D_B.parameters(), lr=0.0001)
+optimizer_G_AB = torch.optim.Adam(G_AB.parameters(), lr=0.00025)
+optimizer_G_BA = torch.optim.Adam(G_BA.parameters(), lr=0.00025)
+optimizer_D_A = torch.optim.Adam(D_A.parameters(), lr=0.00005)
+optimizer_D_B = torch.optim.Adam(D_B.parameters(), lr=0.00025)
 
 #0.001,0.001,0.0003, 0.00001 works but discriminators are trash
 
 loader_A = experimental_loader
 loader_B = simulated_loader
 lambda_cycle = 10
-lambda_id = 1 * lambda_cycle
+lambda_id = 0.5 * lambda_cycle
 
 losses_G_AB = []
 losses_G_BA = []
@@ -78,6 +96,9 @@ fixed_sample_B = next(iter(simulated_loader))[0].to(device)     # Fixed batch fr
 fixed_sample_A = fixed_sample_A.unsqueeze(0)
 fixed_sample_B = fixed_sample_B.unsqueeze(0)
 num_epochs = 300
+buffer_AB = ImagePool(50)
+buffer_BA = ImagePool(50)
+
 for epoch in range(num_epochs):
     print(f"Epoch {epoch+1}/{num_epochs}")
     
@@ -93,7 +114,7 @@ for epoch in range(num_epochs):
         real_A = real_A.to(device)
         real_B = real_B.to(device)
         #add gaussian noise to real_B with mean 0 and std 0.001
-        noise = torch.randn(real_B.size(), device=device) * 0.005
+        noise = torch.randn(real_B.size(), device=device) * 0.0001
         real_B = real_B.clone() + noise
         # Generators G_AB and G_BA
         optimizer_G_AB.zero_grad()
@@ -105,11 +126,17 @@ for epoch in range(num_epochs):
 
         # GAN loss
         fake_B = G_AB(real_A)
+
+        fake_B = buffer_AB.query(fake_B)
+
         discriminator_output = D_B(fake_B)
         target_tensor = torch.ones_like(discriminator_output).to(device)  
         loss_GAN_AB = criterion_GAN(discriminator_output, target_tensor)
 
         fake_A = G_BA(real_B)
+
+        fake_A = buffer_BA.query(fake_A)
+
         discriminator_output = D_A(fake_A)
         target_tensor = torch.ones_like(discriminator_output).to(device)
         loss_GAN_BA = criterion_GAN(discriminator_output, target_tensor)
@@ -206,7 +233,7 @@ for epoch in range(num_epochs):
     losses_D_B.append(avg_loss_D_B)
 
     # Print average losses
-    print(f"Generator AB Loss: {avg_loss_G_AB:.4f}, Generator BA Loss: {avg_loss_G_BA:.4f}, Discriminator A Loss: {avg_loss_D_A:.4f}, Discriminator B Loss: {avg_loss_D_B:.4f}")
+    print(f"Generator AB Loss: {avg_loss_G_AB:.5f}, Generator BA Loss: {avg_loss_G_BA:.5f}, Discriminator A Loss: {avg_loss_D_A:.5f}, Discriminator B Loss: {avg_loss_D_B:.5f}")
 
     # Visualizing Generated Images after each epoch
     with torch.no_grad():
@@ -240,26 +267,26 @@ for epoch in range(num_epochs):
         image_grid_G_AB_G_BA = torch.cat((sample_A, fake_B, sample_B, fake_A), 2)
         writer.add_image("image_grid_G_AB_G_BA", image_grid_G_AB_G_BA, epoch)
 
-        if False:
+        if True:
             # Plotting
             plt.figure(figsize=(10, 4))
 
             # Plot only the image part of the tensors (assuming it's the first channel)
             plt.subplot(1, 4, 1)
             plt.title("Real A")
-            plt.imshow(sample_A[0], cmap='gray')  # Grayscale image from the first channel
+            plt.imshow(sample_A[0], cmap='viridis')  # Grayscale image from the first channel
 
             plt.subplot(1, 4, 2)
             plt.title("Fake B")
-            plt.imshow(fake_B[0], cmap='gray')  # Grayscale image from the first channel
+            plt.imshow(fake_B[0], cmap='viridis')  # Grayscale image from the first channel
 
             plt.subplot(1, 4, 3)
             plt.title("Real B")
-            plt.imshow(sample_B[0], cmap='gray')  # Grayscale image from the first channel
+            plt.imshow(sample_B[0], cmap='viridis')  # Grayscale image from the first channel
 
             plt.subplot(1, 4, 4)
             plt.title("Fake A")
-            plt.imshow(fake_A[0], cmap='gray')  # Grayscale image from the first channel
+            plt.imshow(fake_A[0], cmap='viridis')  # Grayscale image from the first channel
 
             plt.show()
 

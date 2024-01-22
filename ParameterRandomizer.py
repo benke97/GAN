@@ -220,6 +220,9 @@ class ParameterRandomizer():
         elif structure_type == "atom_counting":
             structure_type = random.choice(["random","wulff","cluster"])
             structure_type,dict_of_parameters = self.gen_params_AC(structure_type,j)
+        elif structure_type == "random_on_random":
+            structure_type = "random"
+            dict_of_parameters = self.gen_params_random(surface_facet="random",particle_surface_facet="random")
         else:
             raise ValueError("Unknown structure type")
         #print("Structure type:",structure_type)
