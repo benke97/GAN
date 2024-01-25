@@ -6,6 +6,7 @@ def plot_batch(data_loader, title):
     # Get a batch of data
     dataiter = iter(data_loader)
     images_batch = next(dataiter)
+    images_batch = images_batch[0]
     print(images_batch.shape)
     print(images_batch.dtype)
     # Convert the batch of images to a grid for display

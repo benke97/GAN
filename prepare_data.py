@@ -15,6 +15,7 @@ import mrcfile
 import torch
 from scipy.ndimage import gaussian_filter
 import tifffile as tiff
+from torchvision import transforms
 
 def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe=False, only_random=False):
     """Return the data dictionaries for experimental and simulated data."""
@@ -145,6 +146,8 @@ def get_data_dicts_and_transforms(simulated_path, experimental_path, apply_probe
         MinMaxNormalize(global_min_exp, global_max_exp)
     ])
 
+    print("GLOBAL MIN SIM:", global_min_sim, "GLOBAL MAX SIM:", global_max_sim)
+    print("GLOBAL MIN EXP:", global_min_exp, "GLOBAL MAX EXP:", global_max_exp)
     return data_dict, experimental_data_dict, transform_sim, transform_exp
 
 
@@ -184,18 +187,33 @@ class SimulatedDataset(Dataset):
         dataframe, simulated_image = self.data_dict[idx].values()
         if self.transform:
             simulated_image = self.transform(simulated_image)
-            
-        return simulated_image
+        fft = torch.fft.fft2(simulated_image)
+        return simulated_image, fft
     
-    def plot_histogram(self):
+    def plot_histogram(self, bins=100):
         """Plot the histogram of the simulated images."""
-        simulated_images = [self.data_dict[idx]['image'] for idx in range(len(self.data_dict))]
-        simulated_images = torch.stack(simulated_images)
-        simulated_images = simulated_images.numpy()
-        plt.hist(simulated_images.flatten(), bins=100)
-        plt.title("Histogram of Simulated Images")
-        plt.show()
-    
+        try:
+            tensor_images = []
+            for idx in range(len(self)):
+                # Use __getitem__ to apply transformations
+                tensor_image = self.__getitem__(idx)
+                tensor_images.append(tensor_image)
+
+            # Stack and flatten the tensors
+            all_images_tensor = torch.stack(tensor_images)
+            flattened_images = all_images_tensor.view(-1).numpy()
+
+            # Plotting the histogram
+            plt.hist(flattened_images, bins=bins)
+            plt.title("Histogram of Simulated Images")
+            plt.xlabel("Pixel Values")
+            plt.ylabel("Frequency")
+            plt.show()
+            print("SIM: min", np.min(flattened_images),"max", np.max(flattened_images))
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
 class ExperimentalDataset(Dataset):
     def __init__(self, data_dict, transform=None):
         self.data_dict = data_dict
@@ -208,17 +226,32 @@ class ExperimentalDataset(Dataset):
         dataframe, experimental_image = self.data_dict[idx].values()
         if self.transform:
             experimental_image = self.transform(experimental_image)
-
-        return experimental_image
+        fft = torch.fft.fft2(experimental_image)
+        return experimental_image, fft
     
-    def plot_histogram(self):
+    def plot_histogram(self, bins=100):
         """Plot the histogram of the experimental images."""
-        experimental_images = [self.data_dict[idx]['image'] for idx in range(len(self.data_dict))]
-        experimental_images = torch.stack(experimental_images)
-        experimental_images = experimental_images.numpy()
-        plt.hist(experimental_images.flatten(), bins=100)
-        plt.title("Histogram of Experimental Images")
-        plt.show()
+        try:
+            tensor_images = []
+            for idx in range(len(self)):
+                # Use __getitem__ to apply transformations
+                tensor_image = self.__getitem__(idx)
+                tensor_images.append(tensor_image)
+
+            # Stack and flatten the tensors
+            all_images_tensor = torch.stack(tensor_images)
+            flattened_images = all_images_tensor.view(-1).numpy()
+
+            # Plotting the histogram
+            plt.hist(flattened_images, bins=bins)
+            plt.title("Histogram of Experimental Images")
+            plt.xlabel("Pixel Values")
+            plt.ylabel("Frequency")
+            plt.show()
+            print("EXP: min", np.min(flattened_images),"max", np.max(flattened_images))
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
 
 # %%
 

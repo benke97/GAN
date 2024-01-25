@@ -9,46 +9,40 @@ class ImagePool():
     rather than the ones produced by the latest generators.
     """
 
-    def __init__(self, pool_size):
+    def __init__(self, pool_size, image_size):
         """Initialize the ImagePool class
 
         Parameters:
             pool_size (int) -- the size of image buffer, if pool_size=0, no buffer will be created
+            image_size (tuple) -- the size of each image (C, H, W)
         """
         self.pool_size = pool_size
-        if self.pool_size > 0:  # create an empty pool
+        self.image_size = image_size
+        if self.pool_size > 0:
+            self.images = torch.empty((pool_size, *image_size))
             self.num_imgs = 0
-            self.images = []
 
     def query(self, images):
-        """Return an image from the pool.
+        if True:
+            return images
 
-        Parameters:
-            images: the latest generated images from the generator
-
-        Returns images from the buffer.
-
-        By 50/100, the buffer will return input images.
-        By 50/100, the buffer will return images previously stored in the buffer,
-        and insert the current images to the buffer.
-        """
         if self.pool_size == 0:  # if the buffer size is 0, do nothing
             return images
+        
         return_images = []
         for image in images:
-            image = torch.unsqueeze(image.data, 0)
-            if self.num_imgs < self.pool_size:   # if the buffer is not full; keep inserting current images to the buffer
-                self.num_imgs = self.num_imgs + 1
-                self.images.append(image)
-                return_images.append(image)
+            if self.num_imgs < self.pool_size:
+                self.images[self.num_imgs] = image.data
+                self.num_imgs += 1
+                return_images.append(image.data)
             else:
                 p = random.uniform(0, 1)
-                if p > 0.5:  # by 50% chance, the buffer will return a previously stored image, and insert the current image into the buffer
-                    random_id = random.randint(0, self.pool_size - 1)  # randint is inclusive
+                if p > 1:  # Adjust this threshold as needed
+                    random_id = random.randint(0, self.pool_size - 1)
                     tmp = self.images[random_id].clone()
-                    self.images[random_id] = image
+                    self.images[random_id] = image.data
                     return_images.append(tmp)
-                else:       # by another 50% chance, the buffer will return the current image
-                    return_images.append(image)
-        return_images = torch.cat(return_images, 0)   # collect all the images and return
-        return return_images
+                else:
+                    return_images.append(image.data)
+
+        return torch.stack(return_images)
