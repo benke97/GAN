@@ -105,7 +105,7 @@ class ParameterRandomizer():
 
         return dict_of_parameters
     
-    def gen_params_wulff(self, surface_facet=None, particle_surface_facet=None,particle_rotation_arg=True):
+    def gen_params_wulff(self, surface_facet=None, particle_surface_facet=None,particle_rotation_arg=True,force_rotation=False):
         # size
         # add_step
         # step_height
@@ -120,7 +120,12 @@ class ParameterRandomizer():
             surface_facet = random.choice(["100","100","111","111","random"])
         if particle_surface_facet == None:
             particle_surface_facet = random.choice(["100","111"])
-        rotation = random.choice([True,False])
+        
+        if force_rotation:
+            rotation = True
+        else:
+            rotation = random.choice([True,False])
+
 
         if particle_surface_facet == "100":
             particle_rotation = random.choice([0,np.pi/2])
@@ -223,6 +228,9 @@ class ParameterRandomizer():
         elif structure_type == "random_on_random":
             structure_type = "random"
             dict_of_parameters = self.gen_params_random(surface_facet="random",particle_surface_facet="random")
+        elif structure_type == "wulff_on_random":
+            structure_type = "wulff"
+            dict_of_parameters = self.gen_params_wulff(surface_facet="random", force_rotation=True)
         else:
             raise ValueError("Unknown structure type")
         #print("Structure type:",structure_type)

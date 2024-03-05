@@ -19,3 +19,25 @@ def plot_batch(data_loader, title):
     plt.title(title)
     plt.axis('off')
     plt.show()
+
+import torch
+import numpy as np
+from torch.utils.data import Dataset
+
+# Function to calculate global min and max FFT magnitudes
+def calculate_global_fft_min_max(dataset):
+    global_min = np.inf
+    global_max = -np.inf
+
+    for idx in range(len(dataset)):
+        # Get the image and its FFT
+        _, fft_complex = dataset[idx]
+        
+        # Compute magnitude of the FFT
+        magnitude = torch.abs(fft_complex)
+        
+        # Update global min and max using torch operations
+        global_min = min(global_min, torch.min(magnitude).item())
+        global_max = max(global_max, torch.max(magnitude).item())
+    
+    return global_min, global_max

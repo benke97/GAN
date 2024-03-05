@@ -7,21 +7,26 @@ from prepare_data import SimulatedDataset, ExperimentalDataset, get_data_dicts_a
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader, random_split
-from helpers import plot_batch
+from helpers import plot_batch, calculate_global_fft_min_max
 import random
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from pathlib import Path
-from image_pool import ImagePool
+from image_pool import ImagePool, NuImagePool
 
 random.seed(1337)
 
 mrc_path = Path('data') / 'mrc'
 experimental_path = Path('data') / 'experimental'
-sim_data_dict, exp_data_dict, transform_sim, transform_exp = get_data_dicts_and_transforms(mrc_path, experimental_path, apply_probe=True, only_random=True)
+sim_data_dict, exp_data_dict, transform_sim, transform_exp = get_data_dicts_and_transforms(mrc_path, experimental_path, apply_probe=True, only_random=False)
 
 simulated_dataset = SimulatedDataset(sim_data_dict, transform=transform_sim)
 experimental_dataset = ExperimentalDataset(exp_data_dict, transform=transform_exp)
+
+global_fft_min_exp, global_fft_max_exp = calculate_global_fft_min_max(experimental_dataset)
+global_fft_min_sim, global_fft_max_sim = calculate_global_fft_min_max(simulated_dataset)
+print(global_fft_min_exp, global_fft_max_exp, global_fft_min_sim, global_fft_max_sim)
+
 
 train_size_sim = int(0.8 * len(simulated_dataset))
 val_size_sim = len(simulated_dataset) - train_size_sim
@@ -45,6 +50,7 @@ print(len(simulated_dataset), len(experimental_dataset))
 #doesnt work yet
 #simulated_dataset.plot_histogram()
 #experimental_dataset.plot_histogram()
+
 
 #%%
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -76,7 +82,7 @@ optimizer_D_B_FFT = torch.optim.Adam(D_B_FFT.parameters(), lr=0.0002)
 
 #0.001,0.001,0.0003, 0.00001 works but discriminators are trash
 
-lambda_cycle = 10
+lambda_cycle = 5
 lambda_id = 0.5 * lambda_cycle
 
 losses_G_AB = []
@@ -95,8 +101,8 @@ fixed_sample_B = next(iter(simulated_loader_val))[0].to(device)     # Fixed batc
 fixed_sample_A = fixed_sample_A.unsqueeze(0)
 fixed_sample_B = fixed_sample_B.unsqueeze(0)
 num_epochs = 300
-buffer_D_B = ImagePool(50,(1, 128, 128))
-buffer_D_A = ImagePool(50,(1, 128, 128))
+buffer_D_B = NuImagePool(20)
+buffer_D_A = NuImagePool(20)
 
 for epoch in range(num_epochs):
     print(f"Epoch {epoch+1}/{num_epochs}")
@@ -128,16 +134,32 @@ for epoch in range(num_epochs):
 
         real_A = real_A.to(device)
         real_B = real_B.to(device)
-        real_A_fft = real_A_fft.to(device)
-        real_B_fft = real_B_fft.to(device)
+
+        real_A_fft = torch.abs(torch.fft.fftshift(torch.fft.fft2(real_A))).to(device)
+        real_B_fft = torch.abs(torch.fft.fftshift(torch.fft.fft2(real_B))).to(device)
         #add gaussian noise to real_B with mean 0 and std 0.001
         noise_B = torch.randn(real_B.size(), device=device) * 0.001
         noise_A = torch.randn(real_A.size(), device=device) * 0.001
+        
         real_B = real_B.clone() + noise_B
         real_A = real_A.clone() + noise_A
+        
+        #min-max normalize real_A_fft and real_B_fft and add noise
+        noise_fft = torch.randn(real_A_fft.size(), device=device) * 0.005
+        real_A_fft = (real_A_fft - global_fft_min_exp)/(global_fft_max_exp - global_fft_min_exp)
+        real_B_fft = (real_B_fft - global_fft_min_sim)/(global_fft_max_sim - global_fft_min_sim)
+        real_A_fft = real_A_fft.clone() + noise_fft
+        real_B_fft = real_B_fft.clone() + noise_fft
+        #plot real_A_fft
+        #plt.figure(figsize=(8, 4))
+        #plt.subplot(1, 2, 1)
+        #plt.title("Real A FFT")
+        #plt.imshow(real_A_fft[0].cpu().detach().numpy()[0], cmap='gray')  # Grayscale image from the first channel
+        #plt.subplot(1, 2, 2)
+        #plt.title("Real B FFT")
+        #plt.imshow(real_B_fft[0].cpu().detach().numpy()[0], cmap='gray')  # Grayscale image from the first channel
+        #plt.show()
 
-        real_A_fft = real_A_fft.clone() + noise_A
-        real_B_fft = real_B_fft.clone() + noise_B
 
         # Generators G_AB and G_BA
         optimizer_G_AB.zero_grad()
@@ -150,7 +172,8 @@ for epoch in range(num_epochs):
 
         # GAN loss
         fake_B = G_AB(real_A)
-        fake_B_buffered = buffer_D_B.query(fake_B).to(device)
+        fake_B_fft = torch.abs(torch.fft.fftshift(torch.fft.fft2(fake_B)))
+        #fake_B_buffered = buffer_D_B.query(fake_B).to(device)
         
         #plot fake_B
         #plt.figure(figsize=(8, 4))
@@ -158,22 +181,24 @@ for epoch in range(num_epochs):
         #plt.title("Fake B pre buffer")
         #plt.imshow(fake_B[0].cpu().detach().numpy()[0], cmap='gray')  # Grayscale image from the first channel
         #plt.subplot(1, 2, 2)
-
+        fake_B_buffered= buffer_D_B.query(fake_B.clone()).to(device)
         #plt.title("Fake B post buffer")
-        #plt.imshow(fake_B[0].cpu().detach().numpy()[0], cmap='gray')  # Grayscale image from the first channel
+        #plt.imshow(fake_B_buffered[0].cpu().detach().numpy()[0], cmap='gray')  # Grayscale image from the first channel
         #plt.show()
 
 
         discriminator_output = D_B(fake_B_buffered)
-        discriminator_output_fft = D_B_FFT(torch.abs(torch.fft.fftshift(torch.fft.fft2(fake_B_buffered))))
+        fake_B_fft = (torch.abs(torch.fft.fftshift(torch.fft.fft2(fake_B_buffered))) - global_fft_min_sim)/(global_fft_max_sim - global_fft_min_sim)
+        discriminator_output_fft = D_B_FFT(fake_B_fft)
 
 
         target_tensor = torch.ones_like(discriminator_output).to(device)  
         loss_GAN_AB = (criterion_GAN(discriminator_output, target_tensor) + criterion_GAN(discriminator_output_fft, target_tensor))/2
+        
+
 
         fake_A = G_BA(real_B)
-        fake_A_buffered = buffer_D_A.query(fake_A).to(device)
-
+        fake_A_buffered = buffer_D_A.query(fake_A.clone()).to(device)
         #print("Before query:")
         #print(f"Datatype: {fake_A.dtype}, Range: {fake_A.min(), fake_A.max()}, Shape: {fake_A.shape}")
         #print("After query:")
@@ -181,7 +206,8 @@ for epoch in range(num_epochs):
 
 
         discriminator_output = D_A(fake_A_buffered)
-        discriminator_output_fft = D_A_FFT(torch.abs(torch.fft.fftshift(torch.fft.fft2(fake_A_buffered))))
+        fake_A_fft = (torch.abs(torch.fft.fftshift(torch.fft.fft2(fake_A_buffered))) - global_fft_min_exp)/(global_fft_max_exp - global_fft_min_exp)
+        discriminator_output_fft = D_A_FFT(fake_A_fft)
         target_tensor = torch.ones_like(discriminator_output).to(device)
         loss_GAN_BA = (criterion_GAN(discriminator_output, target_tensor) + criterion_GAN(discriminator_output_fft, target_tensor))/2
 
@@ -198,7 +224,7 @@ for epoch in range(num_epochs):
         optimizer_G_AB.step()
         
         loss_G_BA = loss_GAN_BA + lambda_cycle * loss_cycle_A + lambda_id * loss_id_A
-        loss_G_BA.backward()
+        loss_G_BA.backward(retain_graph=True)
         optimizer_G_BA.step()
 
         # Discriminator A
@@ -238,11 +264,11 @@ for epoch in range(num_epochs):
         #discriminator FFT A
         optimizer_D_A_FFT.zero_grad()
 
-        real_A_output_fft = D_A_FFT(torch.abs(torch.fft.fftshift(torch.fft.fft2(real_A))))
+        real_A_output_fft = D_A_FFT(real_A_fft.detach())
         target_real = torch.ones_like(real_A_output_fft).to(device)
         loss_real = criterion_GAN(real_A_output_fft, target_real)
 
-        fake_A_output_fft = D_A_FFT(torch.abs(torch.fft.fftshift(torch.fft.fft2(fake_A_buffered.detach()))))
+        fake_A_output_fft = D_A_FFT(fake_A_fft)
         target_fake = torch.zeros_like(fake_A_output_fft).to(device)
         loss_fake = criterion_GAN(fake_A_output_fft, target_fake)
 
@@ -253,11 +279,11 @@ for epoch in range(num_epochs):
         #discriminator FFT B
         optimizer_D_B_FFT.zero_grad()
 
-        real_B_output_fft = D_B_FFT(torch.abs(torch.fft.fftshift(torch.fft.fft2(real_B))))
+        real_B_output_fft = D_B_FFT(real_B_fft)
         target_real = torch.ones_like(real_B_output_fft).to(device)
         loss_real = criterion_GAN(real_B_output_fft, target_real)
 
-        fake_B_output_fft = D_B_FFT(torch.abs(torch.fft.fftshift(torch.fft.fft2(fake_B_buffered.detach()))))
+        fake_B_output_fft = D_B_FFT(fake_B_fft)
         target_fake = torch.zeros_like(fake_B_output_fft).to(device)
         loss_fake = criterion_GAN(fake_B_output_fft, target_fake)
 
@@ -402,7 +428,7 @@ for epoch in range(num_epochs):
             target_real = torch.ones_like(real_A_output).to(device)
             loss_real = criterion_GAN(real_A_output, target_real)
 
-            fake_A_output = D_A(fake_A.detach())
+            fake_A_output = D_A(fake_A)
             target_fake = torch.zeros_like(fake_A_output).to(device)
             loss_fake = criterion_GAN(fake_A_output, target_fake)
 

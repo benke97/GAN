@@ -146,7 +146,7 @@ class ObjectGenerator():
                           color=color_map.get(label, (0, 0, 0)),
                           scale_factor=scale_map.get(label, 1))  # Use scale_map for scale_factor
         # Set the view angle along the x-axis
-        mlab.view(azimuth=90, elevation=90)
+        mlab.view(azimuth=0, elevation=0)
         # Display the plot
         mlab.show()
 
@@ -781,10 +781,40 @@ class ObjectGenerator():
         df['label'] = element
         return df
 
-    def relax_structure(self, structure_df):
+    def land_flying_particles(self, structure_df, support_hull,particle_hull):
+        #NOT IN USE
+        # list Pt positions
+        #print("structure_df",structure_df)
+        pt_particle =structure_df[structure_df['label'] == 'Pt']
+        cerium = structure_df[structure_df['label'] == 'Ce']
+        ce_positions = cerium[['x', 'y', 'z']].values
+        pt_positions = pt_particle[['x', 'y', 'z']].values
+        bottom_particle_hull = particle_hull[-1]
+        top_support_hull = support_hull[-1]
+        #find all Pt atoms in bottom_particle_hull
+        pt_positions_in_bottom_hull = []
+        for pt in pt_positions:
+            if self.point_in_convex_hull(pt, bottom_particle_hull):
+                pt_positions_in_bottom_hull.append(pt)
+        pt_positions_in_bottom_hull = np.array(pt_positions_in_bottom_hull)
+        #find all Ce atoms in top_support_hull
+        ce_positions_in_top_hull = []
+        for ce in ce_positions:
+            if self.point_in_convex_hull(ce, top_support_hull):
+                ce_positions_in_top_hull.append(ce)
+        ce_positions_in_top_hull = np.array(ce_positions_in_top_hull)
+        print("Ce positions in top hull",ce_positions_in_top_hull)
+        print("Pt positions in bottom hull",pt_positions_in_bottom_hull)
+
+    def relax_structure(self, structure_df, support_hull, particle_hull, particle_relax=0):
         positions = structure_df[['x', 'y', 'z']].values
         labels = structure_df['label'].values
-        new_positions = positions + np.random.normal(0, 0.1, size=positions.shape) 
+        #bob = self.land_flying_particles(structure_df, support_hull, particle_hull)
+        new_positions = positions + np.random.normal(0, 0.1, size=positions.shape)
+        if particle_relax != 0:
+            new_positions[labels == 'Pt'] += np.random.normal(0, particle_relax, size=new_positions[labels == 'Pt'].shape)
+        #relax Pt atoms even more:
+        new_positions[labels == 'Pt'] -= [0, 0, 1.5]
         new_df = pd.DataFrame(new_positions, columns=['x', 'y', 'z'])
         new_df['label'] = labels
         return new_df
@@ -832,7 +862,7 @@ class ObjectGenerator():
             particle_interface_points = points[mask]
             return particle_interface_points
 
-    def generate_atomic_structure(self, particle_type="random", dict_of_parameters=None, dilat_control=None):
+    def generate_atomic_structure(self, particle_type="random", dict_of_parameters=None, dilat_control=None, Pt_relax=0):
         if particle_type == "random":
             
             hull_layers = dict_of_parameters["hull_layers"]
@@ -865,7 +895,7 @@ class ObjectGenerator():
             filtered_ceo2 = self.filter_atoms_by_hull(CeO2_bulk,support_hull)
             filtered_atoms = pd.concat([filtered_Pt,filtered_ceo2])
             filtered_atoms = self.set_interface_spacing(filtered_atoms,support_hull, 2.2)
-            relaxed_struct = self.relax_structure(filtered_atoms)
+            relaxed_struct = self.relax_structure(filtered_atoms, support_hull, particle_hull, particle_relax = Pt_relax)
             relaxed_struct = self.remove_overlapping_atoms(relaxed_struct)
             
             return relaxed_struct
@@ -911,7 +941,7 @@ class ObjectGenerator():
 
             filtered_atoms = pd.concat([filtered_Pt,filtered_ceo2])
             filtered_atoms = self.set_interface_spacing(filtered_atoms,support_hull, 2.2)
-            relaxed_struct = self.relax_structure(filtered_atoms)
+            relaxed_struct = self.relax_structure(filtered_atoms, support_hull, particle_hull, particle_relax = Pt_relax)
             relaxed_struct = self.remove_overlapping_atoms(relaxed_struct)
             return relaxed_struct
 
@@ -949,7 +979,7 @@ class ObjectGenerator():
 
             filtered_atoms = pd.concat([filtered_Pt,filtered_ceo2])
             filtered_atoms = self.set_interface_spacing(filtered_atoms,support_hull, 2.2)
-            relaxed_struct = self.relax_structure(filtered_atoms)
+            relaxed_struct = self.relax_structure(filtered_atoms, support_hull, particle_hull, particle_relax = Pt_relax)
             relaxed_struct = self.remove_overlapping_atoms(relaxed_struct)
             return relaxed_struct
 

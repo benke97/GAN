@@ -34,12 +34,12 @@ class ImagePool():
         """
         if self.pool_size == 0:  # if the buffer size is 0, do nothing
             return images
-        return_images = []
+        return_images = []  
         for image in images:
             image = torch.unsqueeze(image.data, 0)
             if self.num_imgs < self.pool_size:   # if the buffer is not full; keep inserting current images to the buffer
                 self.num_imgs = self.num_imgs + 1
-                self.images.append(image)
+                self.images.append(image.clone())
                 return_images.append(image)
             else:
                 p = random.uniform(0, 1)
@@ -48,7 +48,35 @@ class ImagePool():
                     tmp = self.images[random_id].clone()
                     self.images[random_id] = image
                     return_images.append(tmp)
+                    #print("returning image from buffer")
                 else:       # by another 50% chance, the buffer will return the current image
                     return_images.append(image)
         return_images = torch.cat(return_images, 0)   # collect all the images and return
+        return return_images
+    
+
+class NuImagePool:
+    def __init__(self, pool_size):
+        self.pool_size = pool_size
+
+        if self.pool_size > 0:
+            self.image_pool = []
+    
+    def query(self, images):
+        if self.pool_size == 0:
+            return images
+
+        return_images = images.clone()
+
+        for i in range(images.size()[0]):
+            if len(self.image_pool) < self.pool_size:
+                self.image_pool.append(images[i].clone())
+            
+            else:
+                p = random.uniform(0, 1)
+                if p > 0.5:
+                    random_id = random.randint(0, self.pool_size - 1)
+                    return_images[i] = self.image_pool[random_id].clone()
+                    self.image_pool[random_id] = images[i]
+
         return return_images
